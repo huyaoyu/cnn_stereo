@@ -22,26 +22,29 @@ CONV_NET_DICT = {
         {"inChannels":  64, "outChannels":  32, "kernelSize": 1, "stride": 1, "padding": 0},
         {"inChannels": 128, "outChannels":  32, "kernelSize": 1, "stride": 1, "padding": 0}
     ],
+    "convNets_ToExp": [
+        {"inChannels": 198, "outChannels": 128, "kernelSize": 1, "stride": 1, "padding": 0}
+    ],
     "convNets_Exp": [
-        {"inChannels": 128, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 128, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 512, "kernelSize": 3, "stride": 2, "padding": 1}
+        {"inChannels": 128, "outChannels": 128, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 128, "outChannels": 256, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 256, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 512, "kernelSize": 4, "stride": 2, "padding": 1}
     ],
     "convNets_Cnt": [
-        {"inChannels": 512, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 128, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 512, "outChannels": 256, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 512, "outChannels": 256, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 512, "outChannels": 128, "kernelSize": 4, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 128, "kernelSize": 4, "stride": 2, "padding": 1},
     ],
     "convNets_DR": [
-        {"inChannels": 128, "outChannels":  64, "kernelSize": 1, "stride": 1, "padding": 0},
+        {"inChannels": 256, "outChannels":  64, "kernelSize": 1, "stride": 1, "padding": 0},
         {"inChannels":  64, "outChannels":   1, "kernelSize": 1, "stride": 1, "padding": 0},
     ]
 }
 
 class ConvolutionalStereoNet(nn.Module):
-    def __init__(self):
+    def __init__(self, flagCuda = False):
         super(ConvolutionalStereoNet, self).__init__()
 
         # Declare each layer.
@@ -70,6 +73,17 @@ class ConvolutionalStereoNet(nn.Module):
                     fx_cat_d["kernelSize"],\
                     fx_cat_d["stride"],
                     fx_cat_d["padding"]) )
+
+        convNets_ToExp = CONV_NET_DICT["convNets_ToExp"]
+        self.toExp     = []
+
+        for toExpd in convNets_ToExp:
+            self.toExp.append( \
+                nn.Conv2d( toExpd["inChannels"],\
+                    toExpd["outChannels"],\
+                    toExpd["kernelSize"],\
+                    stride = toExpd["stride"],\
+                    padding = toExpd["padding"]) )
 
         # Expansion layers.
         convNets_Exp = CONV_NET_DICT["convNets_Exp"]
@@ -107,19 +121,38 @@ class ConvolutionalStereoNet(nn.Module):
                     drd["stride"],\
                     drd["padding"] ) )
 
-        self._initialize_weights()
+        self._initialize_weights(flagCuda)
 
-    def _initialize_weights(self):
+    def _initialize_weights(self, flagCuda = False):
         for m in self.fx:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
 
             if m.bias is not None:
                 m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
         
         for m in self.fx_cat:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
+
+            if m.bias is not None:
+                m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
+
+        for m in self.toExp:
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
+
+            if m.bias is not None:
+                m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
 
         for m in self.exp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -127,6 +160,9 @@ class ConvolutionalStereoNet(nn.Module):
 
             if m.bias is not None:
                 m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
 
         for m in self.cnt:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -134,6 +170,9 @@ class ConvolutionalStereoNet(nn.Module):
             
             if m.bias is not None:
                 m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
 
         for m in self.dr:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -141,10 +180,16 @@ class ConvolutionalStereoNet(nn.Module):
             
             if m.bias is not None:
                 m.bias.data.zero_()
+            
+            if ( True == flagCuda ):
+                m = m.cuda()
         
         for m in self.fx_bn:
             m.weight.data.fill_(1)
             m.bias.data.zero_()
+
+            if ( True == flagCuda ):
+                m = m.cuda()
 
     def feature_extract(self, x):
         # Manually run through each layer!!!
@@ -163,7 +208,8 @@ class ConvolutionalStereoNet(nn.Module):
         out  = self.fx[3](out)
         cat2 = self.fx_bn[3](out)
         out  = F.max_pool2d( F.relu( cat2, inplace = False ), kernel_size = 2 )
-        cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        # cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        cat2 = F.upsample( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
         cat2 = self.fx_cat[0](cat2)
 
         out  = self.fx[4](out)
@@ -172,28 +218,68 @@ class ConvolutionalStereoNet(nn.Module):
 
         out  = self.fx[5](out)
         cat3 = self.fx_bn[5](out)
-        cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        # cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        cat3 = F.upsample( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
         cat3 = self.fx_cat[1](cat3)
 
         x = torch.cat((x, cat1, cat2, cat3), dim = 1)
 
         return x
 
+    def forward(self, left, right):
+        # Extract features.
+
+        L = self.feature_extract(left)
+        R = self.feature_extract(right)
+
+        x = torch.cat( (L, R), dim = 1 )
+
+        catList = []
+        for te in self.toExp:
+            x = te(x)
+            catList.append( F.relu( x, inplace = True ) )
+
+        # Expansion.
+        for e in self.exp:
+            x = e(x)
+            catList.append( F.relu( x, inplace = True ) )
+        
+        x = catList[-1]
+
+        # Contraction.
+        for i in range( len( self.cnt) ):
+            x = self.cnt[i](x)
+            x = F.relu( x, inplace = True )
+            x = torch.cat( (x, catList[-2-i]), dim = 1 )
+        
+        for dr in self.dr:
+            x = dr(x)
+            x = F.relu(x, inplace = True)
+
+        return x
 
 if __name__ == "__main__":
     # Create a ConvolutionalStereoNet object.
 
-    csn = ConvolutionalStereoNet()
+    csn = ConvolutionalStereoNet(flagCuda = True)
+    print(csn)
+    csn.cuda()
 
     # Load a test image.
-    img = cv2.imread("../data/airsim_oldtown_stereo_01/image/000000_210520_0_rgb.png")
+    imgL = cv2.imread("../data/airsim_oldtown_stereo_01/image/000000_210520_0_rgb.png")
+    imgR = cv2.imread("../data/airsim_oldtown_stereo_01/image/000000_210520_1_rgb.png")
 
-    nImg = img.astype(np.float32) / np.max(img)
+    # Downsample.
+    imgL = cv2.resize(imgL, (0, 0), fx = 0.25, fy = 0.25, interpolation = cv2.INTER_NEAREST)
+    imgR = cv2.resize(imgR, (0, 0), fx = 0.25, fy = 0.25, interpolation = cv2.INTER_NEAREST)
 
-    t = torch.from_numpy(nImg.transpose(2, 0, 1)).view(1, img.shape[2], img.shape[0], img.shape[1])
+    nImgL = imgL.astype(np.float32) / np.max(imgL)
+    nImgR = imgR.astype(np.float32) / np.max(imgL)
 
-    import ipdb; ipdb.set_trace()
+    tL = torch.from_numpy(nImgL.transpose(2, 0, 1)).view(1, imgL.shape[2], imgL.shape[0], imgL.shape[1])
+    tR = torch.from_numpy(nImgR.transpose(2, 0, 1)).view(1, imgR.shape[2], imgR.shape[0], imgR.shape[1])
 
-    # Test feature extraction.
-    x = csn.feature_extract(t)
+    # Test forward.
+    for i in range(100):
+        x = csn.forward(tL.cuda(), tR.cuda())
     
