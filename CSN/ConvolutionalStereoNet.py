@@ -17,20 +17,20 @@ CONV_NET_DICT = {
         {"inChannels": 128, "outChannels": 128, "kernelSize": 3, "stride": 1, "padding": 1}
     ],
     "convNets_Exp": [
-        {"inChannels": 128, "outChannels": 128, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 128, "outChannels": 256, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 256, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 512, "kernalSize": 3, "stride": 2, "padding": 1}
+        {"inChannels": 128, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 128, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 512, "kernelSize": 3, "stride": 2, "padding": 1}
     ],
     "convNets_Cnt": [
-        {"inChannels": 512, "outChannels": 256, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 256, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 256, "outChannels": 128, "kernalSize": 3, "stride": 2, "padding": 1},
-        {"inChannels": 128, "outChannels": 128, "kernalSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 512, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 256, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 256, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
+        {"inChannels": 128, "outChannels": 128, "kernelSize": 3, "stride": 2, "padding": 1},
     ],
     "convNets_DR": [
-        {"inChannels": 128, "outChannels":  64, "kernalSize": 1, "stride": 1, "padding": 0},
-        {"inChannels":  64, "outChannels":   1, "kernalSize": 1, "stride": 1, "padding": 0},
+        {"inChannels": 128, "outChannels":  64, "kernelSize": 1, "stride": 1, "padding": 0},
+        {"inChannels":  64, "outChannels":   1, "kernelSize": 1, "stride": 1, "padding": 0},
     ]
 }
 
@@ -93,23 +93,50 @@ class ConvolutionalStereoNet(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
+        for m in self.fx:
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
 
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.ConvTranspose2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.init.normal_( m.weight, 0, math.sqrt( 2.0 / n) )
-                
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
+            if m.bias is not None:
                 m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                nn.init.normal_(m.weight, 0, 0.01)
+        
+        for m in self.exp:
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
+
+            if m.bias is not None:
                 m.bias.data.zero_()
+
+        for m in self.cnt:
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            nn.init.normal_( m.weight, 0, math.sqrt( 2.0 / n) )
+            
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+        for m in self.dr:
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            nn.init.normal_( m.weight, 0, math.sqrt( 2.0 / n) )
+            
+            if m.bias is not None:
+                m.bias.data.zero_()
+        
+        for m in self.fx_bn:
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+
+    def feature_extract(self, x):
+        # Manually run through each layer!!!
+        out  = self.fx[0](x)
+        out  = self.fx_bn[0](out)
+        out  = F.relu(out, inplace = True)
+
+        out  = self.fx[1](x)
+        cat1 = self.fx_bn[1](out)
+        out  = F.max_pool2d( F.relu( cat1, inplace = False ), kernel_size = 2 )
+
+if __name__ == "__main__":
+    # Create a ConvolutionalStereoNet object.
+
+    csn = ConvolutionalStereoNet()
+    
