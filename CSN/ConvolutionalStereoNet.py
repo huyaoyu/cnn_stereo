@@ -44,7 +44,7 @@ CONV_NET_DICT = {
 }
 
 class ConvolutionalStereoNet(nn.Module):
-    def __init__(self, flagCuda = False):
+    def __init__(self, dev = None):
         super(ConvolutionalStereoNet, self).__init__()
 
         # Declare each layer.
@@ -121,9 +121,9 @@ class ConvolutionalStereoNet(nn.Module):
                     drd["stride"],\
                     drd["padding"] ) )
 
-        self._initialize_weights(flagCuda)
+        self._initialize_weights(dev)
 
-    def _initialize_weights(self, flagCuda = False):
+    def _initialize_weights(self, dev = None):
         for m in self.fx:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
@@ -131,8 +131,8 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
         
         for m in self.fx_cat:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -141,8 +141,8 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
 
         for m in self.toExp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -151,8 +151,8 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
 
         for m in self.exp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -161,8 +161,8 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
 
         for m in self.cnt:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -171,8 +171,8 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
 
         for m in self.dr:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -181,15 +181,15 @@ class ConvolutionalStereoNet(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
             
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
         
         for m in self.fx_bn:
             m.weight.data.fill_(1)
             m.bias.data.zero_()
 
-            if ( True == flagCuda ):
-                m = m.cuda()
+            if ( dev is not None ):
+                m = m.to(dev)
 
     def feature_extract(self, x):
         # Manually run through each layer!!!
@@ -259,12 +259,12 @@ class ConvolutionalStereoNet(nn.Module):
         return x
 
 if __name__ == "__main__":
-    cuda1 = torch.device('cuda:1')
+    dev = torch.device('cuda:0')
     
     # Create a ConvolutionalStereoNet object.
-    csn = ConvolutionalStereoNet(flagCuda = True)
+    csn = ConvolutionalStereoNet(dev = dev)
     print(csn)
-    csn.cuda()
+    csn.to(dev)
 
     # Load a test image.
     imgL = cv2.imread("../data/airsim_oldtown_stereo_01/image/000000_210520_0_rgb.png")
@@ -282,5 +282,5 @@ if __name__ == "__main__":
 
     # Test forward.
     for i in range(100):
-        x = csn.forward(tL.cuda(), tR.cuda())
+        x = csn.forward(tL.to(dev), tR.to(dev))
     
