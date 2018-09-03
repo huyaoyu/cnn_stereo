@@ -14,7 +14,7 @@ for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
 from workflow import WorkFlow
 
 def print_delimeter(c = "=", n = 20, title = "", leading = "\n", ending = "\n"):
-    d = [c for i in range(n/2)]
+    d = [c for i in range(int(n/2.0 + 0.5))]
 
     if ( 0 == len(title) ):
         s = "".join(d) + "".join(d)

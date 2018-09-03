@@ -259,8 +259,9 @@ class ConvolutionalStereoNet(nn.Module):
         return x
 
 if __name__ == "__main__":
+    cuda1 = torch.device('cuda:1')
+    
     # Create a ConvolutionalStereoNet object.
-
     csn = ConvolutionalStereoNet(flagCuda = True)
     print(csn)
     csn.cuda()
