@@ -4,10 +4,15 @@ from __future__ import print_function
 import cv2
 import math
 import numpy as np
+import os
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+# The solution is found on https://github.com/pytorch/pytorch/issues/1901
+os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID" 
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 CONV_NET_DICT = {
     "convNets_FX": [
@@ -132,7 +137,7 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
         
         for m in self.fx_cat:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -142,7 +147,7 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
 
         for m in self.toExp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -152,7 +157,7 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
 
         for m in self.exp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -162,7 +167,7 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
 
         for m in self.cnt:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -172,7 +177,7 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
 
         for m in self.dr:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -182,14 +187,14 @@ class ConvolutionalStereoNet(nn.Module):
                 m.bias.data.zero_()
             
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
         
         for m in self.fx_bn:
             m.weight.data.fill_(1)
             m.bias.data.zero_()
 
             if ( dev is not None ):
-                m = m.to(dev)
+                m.to(dev)
 
     def feature_extract(self, x):
         # Manually run through each layer!!!
@@ -208,8 +213,8 @@ class ConvolutionalStereoNet(nn.Module):
         out  = self.fx[3](out)
         cat2 = self.fx_bn[3](out)
         out  = F.max_pool2d( F.relu( cat2, inplace = False ), kernel_size = 2 )
-        # cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
-        cat2 = F.upsample( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        # cat2 = F.upsample( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
         cat2 = self.fx_cat[0](cat2)
 
         out  = self.fx[4](out)
@@ -218,8 +223,8 @@ class ConvolutionalStereoNet(nn.Module):
 
         out  = self.fx[5](out)
         cat3 = self.fx_bn[5](out)
-        # cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
-        cat3 = F.upsample( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        # cat3 = F.upsample( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
         cat3 = self.fx_cat[1](cat3)
 
         x = torch.cat((x, cat1, cat2, cat3), dim = 1)
@@ -260,7 +265,7 @@ class ConvolutionalStereoNet(nn.Module):
 
 if __name__ == "__main__":
     dev = torch.device('cuda:0')
-    
+
     # Create a ConvolutionalStereoNet object.
     csn = ConvolutionalStereoNet(dev = dev)
     print(csn)
@@ -271,8 +276,8 @@ if __name__ == "__main__":
     imgR = cv2.imread("../data/airsim_oldtown_stereo_01/image/000000_210520_1_rgb.png")
 
     # Downsample.
-    imgL = cv2.resize(imgL, (0, 0), fx = 0.25, fy = 0.25, interpolation = cv2.INTER_NEAREST)
-    imgR = cv2.resize(imgR, (0, 0), fx = 0.25, fy = 0.25, interpolation = cv2.INTER_NEAREST)
+    imgL = cv2.resize(imgL, (0, 0), fx = 0.5, fy = 0.5, interpolation = cv2.INTER_NEAREST)
+    imgR = cv2.resize(imgR, (0, 0), fx = 0.5, fy = 0.5, interpolation = cv2.INTER_NEAREST)
 
     nImgL = imgL.astype(np.float32) / np.max(imgL)
     nImgR = imgR.astype(np.float32) / np.max(imgL)
@@ -281,6 +286,10 @@ if __name__ == "__main__":
     tR = torch.from_numpy(nImgR.transpose(2, 0, 1)).view(1, imgR.shape[2], imgR.shape[0], imgR.shape[1])
 
     # Test forward.
-    for i in range(100):
-        x = csn.forward(tL.to(dev), tR.to(dev))
+    tL = tL.to(dev)
+    tR = tR.to(dev)
+    torch.cuda.set_device(dev.index)
+    with torch.cuda.device(dev.index):
+        for i in range(100):
+            x = csn.forward(tL, tR)
     

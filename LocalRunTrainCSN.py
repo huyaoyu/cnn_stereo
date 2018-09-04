@@ -7,6 +7,7 @@ import sys
 import time
 
 from CSN.ConvolutionalStereoNet import ConvolutionalStereoNet
+from Datasets.AirsimStereoDataset import AirsimStereoDataset
 
 for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
     sys.path.append( _p )
@@ -76,7 +77,7 @@ class MyWF(WorkFlow.WorkFlow):
         self.countTest  = 0
 
         # ConvolutionalStereoNet.
-        self.csn = ConvolutionalStereoNet(flagCuda = True)
+        self.csn = ConvolutionalStereoNet()
         self.csn.cuda()
 
     # Overload the function initialize().
