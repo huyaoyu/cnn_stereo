@@ -1,18 +1,28 @@
 
 from __future__ import print_function
 
+import argparse
+import json
 import math
 import os
 import sys
 import time
 
+import torch
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
 from CSN.ConvolutionalStereoNet import ConvolutionalStereoNet
-from Datasets.AirsimStereoDataset import AirsimStereoDataset
+from Datasets.AirsimStereoDataset import AirsimStereoDataset, Downsample, ToTensor, Normalize
 
 for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
     sys.path.append( _p )
 
 from workflow import WorkFlow
+
+# ============== Constants. ======================
+
+DEFAULT_INPUT = "inputTrain.json"
 
 def print_delimeter(c = "=", n = 20, title = "", leading = "\n", ending = "\n"):
     d = [c for i in range(int(n/2.0 + 0.5))]
@@ -26,8 +36,12 @@ def print_delimeter(c = "=", n = 20, title = "", leading = "\n", ending = "\n"):
 
 # Template for custom WorkFlow object.
 class MyWF(WorkFlow.WorkFlow):
-    def __init__(self, workingDir, prefix = "", suffix = ""):
-        super(MyWF, self).__init__(workingDir, prefix, suffix)
+    def __init__(self, params):
+        super(MyWF, self).__init__(params["workDir"], params["jobPrefix"], params["jobSuffix"])
+
+        self.params = params
+
+        self.verbose = params["wfVerbose"]
 
         # === Create the AccumulatedObjects. ===
         self.add_accumulated_value("loss2", 10)
@@ -35,8 +49,6 @@ class MyWF(WorkFlow.WorkFlow):
         self.add_accumulated_value("testAvg1", 10)
         self.add_accumulated_value("testAvg2", 20)
         self.add_accumulated_value("lossTest")
-        # This should raise an exception.
-        # self.add_accumulated_value("loss")
 
         # === Create a AccumulatedValuePlotter object for ploting. ===
         avNameList    = ["loss", "loss2", "lossLeap"]
@@ -77,18 +89,52 @@ class MyWF(WorkFlow.WorkFlow):
         self.countTest  = 0
 
         # Cuda stuff.
-        self.cudaDev = torch.device("cuda:0")
-        torch.cuda.set_device( self.cudaDev.index )
+        self.cudaDev = None
 
         # ConvolutionalStereoNet.
-        self.csn = ConvolutionalStereoNet()
-        self.csn.to( self.cudaDev )
+        self.csn        = None
+        self.dataset    = None
+        self.dataLoader = None
+
+        # Training variables.
+        self.criterion = torch.nn.SmoothL1Loss()
+        self.optimizer = None
 
     # Overload the function initialize().
     def initialize(self):
         super(MyWF, self).initialize()
 
         # === Custom code. ===
+        # Cuda stuff.
+        self.cudaDev = torch.device(self.params["torchCudaDevice"])
+        torch.cuda.set_device( self.cudaDev.index )
+
+        # ConvolutionalStereoNet.
+        self.csn = ConvolutionalStereoNet()
+        self.csn.to( self.cudaDev )
+
+        # Dataset.
+        self.dataset = AirsimStereoDataset(\
+            self.params["dataDir"], self.params["imageDir"], self.params["depthDir"] )
+        
+        # Dataset transformer.
+        cm = transforms.Compose( [\
+            Downsample((self.params["downSampleRatio"], self.params["downSampleRatio"])),\
+            ToTensor(),\
+            Normalize(self.dataset.mean, self.dataset.std)] )
+        self.dataset.transforms = cm
+
+        # Dataloader.
+        self.dataLoader = DataLoader( self.dataset,\
+            batch_size  = self.params["torchBatchSize"],\
+            shuffle     = self.params["torchShuffle"],\
+            num_workers = self.params["torchNumWorkers"],\
+            drop_last   = self.params["torchDropLast"] )
+        
+        # Optimizer.
+        self.optimizer = torch.optim.Adam( \
+            self.csn.parameters(), lr = params["torchOptimLearningRate"] )
+
         self.logger.info("Initialized.")
 
     # Overload the function train().
@@ -154,14 +200,29 @@ class MyWF(WorkFlow.WorkFlow):
         self.logger.info("Finalized.")
 
 if __name__ == "__main__":
-    print("Hello WorkFlow.")
+    # Arguments.
+    parser = argparse.ArgumentParser(description="Train a CNN with workflow.")
+
+    parser.add_argument("--input", help = "The filename of the input JSON file.", default = DEFAULT_INPUT)
+    # parser.add_argument("--voiddiam_m",\
+    #     help = "Overwrite voiddiam_m in the input JSON file.",\
+    #     default = -1.0, type = float)
+    # parser.add_argument("--write", help = "Write multiple arrays to file system.", action = "store_true", default = False)
+
+    args = parser.parse_args()
+
+    # Load the input json file.
+    fp = open( args.input, "r" )
+    params = json.load(fp)
+    fp.close()
+    
+    print("%s" % (params["jobName"]))
 
     print_delimeter(title = "Before initialization." )
 
     try:
         # Instantiate an object for MyWF.
-        wf = MyWF("/tmp/WorkFlowDir", prefix = "prefix_", suffix = "_suffix")
-        wf.verbose = True
+        wf = MyWF(params)
 
         # Initialization.
         print_delimeter(title = "Initialize.")

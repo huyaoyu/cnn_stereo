@@ -324,7 +324,7 @@ if __name__ == "__main__":
     ttSample = tt(dsSample)
 
     # Create a Normalize object.
-    nm = Normalize([80, 80, 80], [5, 5, 5])
+    nm = Normalize(asd.mean, asd.std)
     nmSample = nm(ttSample)
 
     # Test transforms.

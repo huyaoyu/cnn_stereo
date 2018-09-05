@@ -1,0 +1,17 @@
+{
+    "jobName": "SampleTrain",
+    "jobPrefix": "ST_01_",
+    "jobSuffix": "_suffix",
+    "wfVerbose": false,
+    "workDir": "./SampleTrain",
+    "dataDir": "./data/airsim_oldtown_stereo_01",
+    "imageDir": "image",
+    "depthDir": "depth_plan",
+    "downSampleRatio": 4,
+    "torchCudaDevice": "cuda:0",
+    "torchBatchSize": 4,
+    "torchShuffle": false,
+    "torchNumWorkers": 4,
+    "torchDropLast": false,
+    "torchOptimLearningRate": 1e-4
+}
