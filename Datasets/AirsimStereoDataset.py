@@ -1,8 +1,11 @@
 
 from __future__ import print_function
 
+import copy
 import cv2
+import json
 import glob
+import math
 import numpy as np
 import os
 
@@ -68,8 +71,8 @@ class ToTensor(object):
 
     def __call__(self, sample):
         # Retreive the images and the depths.
-        image0 = torch.from_numpy( sample["image0"].transpose((2, 0, 1)) )
-        image1 = torch.from_numpy( sample["image1"].transpose((2, 0, 1)) )
+        image0 = torch.from_numpy( sample["image0"].astype(np.float64).transpose((2, 0, 1)) )
+        image1 = torch.from_numpy( sample["image1"].astype(np.float64).transpose((2, 0, 1)) )
 
         depthShape = sample["depth0"].shape
 
@@ -78,8 +81,41 @@ class ToTensor(object):
 
         return { "image0": image0, "image1": image1, "depth0": depth0, "depth1": depth1 }
 
+class Normalize(object):
+    def __init__(self, mean, std):
+        """
+        mean: An array like three-element object.
+        std:  An array like three-element object.
+        """
+
+        self.mean = mean
+        self.std  = std
+
+    def __call__(self, sample):
+        """
+        NOTE: This function requires that the images in sample MUST be
+        Tensor, and the dimensions are defined as (channel, height, width).
+
+        NOTE: The normalization of the images are NOT done in-place for 
+        debugging reason.
+        """
+
+        sampleCopied = copy.deepcopy( sample )
+
+        image0, image1 = sampleCopied["image0"], sampleCopied["image1"]
+
+        for t, m, s in zip(image0, self.mean, self.std):
+            t.sub_(m).div_(s)
+
+        for t, m, s in zip(image1, self.mean, self.std):
+            t.sub_(m).div_(s)
+
+        return sampleCopied
+
 class AirsimStereoDataset(Dataset):
-    def __init__(self, rootDir, imageDir, depthDir, imageExt = "png", depthExt = "npy", imageSuffix = "_rgb", depthSuffix = "_depth", transform = None):
+    def __init__(self, rootDir, imageDir, depthDir,\
+        imageExt = "png", depthExt = "npy", imageSuffix = "_rgb", depthSuffix = "_depth", transform = None,\
+        forcedStatisticsCalculation = False):
         self.rootDir     = rootDir
         self.imageDir    = imageDir
         self.depthDir    = depthDir
@@ -112,6 +148,25 @@ class AirsimStereoDataset(Dataset):
         if ( False == self.check_filenames( \
             self.imageFiles, self.depthFiles, self.imageSuffix, self.depthSuffix, self.imageExt, self.depthExt ) ):
             raise Exception("File names are not consistent.")
+
+        # Statistics. Note that if using OpenCV, the order of the color channels may be different.
+        self.mean = [0, 0, 0] # RGB values.
+        self.std  = [1, 1, 1] # Standard deviation values for the RGB.
+
+        self.statFile = self.rootDir + "/StatisticsRGB.json"
+
+        if ( True == forcedStatisticsCalculation ):
+            self.get_statistics()
+        elif ( not os.path.isfile( self.statFile ) ):
+            self.get_statistics()
+        else:
+            # Read results from file.
+            fp = open(self.statFile, "r")
+            s = json.load(fp)
+            self.mean = s["mean"]
+            self.std  = s["std"]
+            fp.close()
+            print("Statistics loaded from %s." % (self.statFile))
     
     def check_filenames(self, fnList0, fnList1, suffix0, suffix1, ext0, ext1):
         """
@@ -136,6 +191,96 @@ class AirsimStereoDataset(Dataset):
                 return False
         
         return True
+
+    def get_statistics(self):
+        print("AirsimStereoDataset is evaluating the statistics. This may take some time.")
+
+        # Clear the statistics.
+        self.mean = [ 0, 0, 0 ]
+        self.std  = [ 1, 1, 1 ]
+
+        print("Calculating the mean value.")
+
+        N0 = 0.0 # The number of pixels of the previous images.
+        N1 = 0.0 # The number of pixels of the current images.
+
+        # Loop over all the data.
+        for i in range( len(self) ):
+            sample = self[i]
+
+            # Image0.
+            image0 = sample["image0"]
+
+            N1 = image0.shape[0] * image0.shape[1]
+
+            for j in range( image0.shape[2] ):
+                # Mean value of iamge0.
+                m = np.mean( image0[ :, :, j] )
+                # Calculate new mean value.
+                self.mean[j] = N0 / ( N0 + N1 ) * self.mean[j] + N1 / ( N0 + N1 ) * m
+
+            # Image1.
+            image1 = sample["image1"]
+
+            N1 = image1.shape[0] * image1.shape[1]
+
+            for j in range( image1.shape[2] ):
+                # Mean value of iamge1.
+                m = np.mean( image1[ :, :, j] )
+                # Calculate new mean value.
+                self.mean[j] = N0 / ( N0 + N1 ) * self.mean[j] + N1 / ( N0 + N1 ) * m
+        
+            N0 += N1
+
+        print("Mean values: {}.".format(self.mean))
+
+        N0 = 0.0
+        N1 = 0.0
+
+        # Loop over all the data.
+        for i in range( len(self) ):
+            sample = self[i]
+
+            # Image0.
+            image0 = sample["image0"]
+
+            # Total number of samples minus 1.
+            N1 = image0.shape[0] * image0.shape[1] - 1
+
+            for j in range( image0.shape[2] ):
+                # Sample standard deviation of iamge0, squared.
+                s = np.sum( np.power( image0[ :, :, j] - self.mean[j], 2 ) ) / N1
+                # Calculate new mean value.
+                self.std[j] = N0 / ( N0 + N1 ) * self.std[j] + N1 / ( N0 + N1 ) * s
+
+            # Image1.
+            image1 = sample["image1"]
+
+            # Total number of samples minus 1.
+            N1 = image1.shape[0] * image1.shape[1] - 1
+
+            for j in range( image1.shape[2] ):
+                # Sample standard deviation of iamge0, squared.
+                s = np.sum( np.power( image1[ :, :, j] - self.mean[j], 2 ) ) / N1
+                # Calculate new mean value.
+                self.std[j] = N0 / ( N0 + N1 ) * self.std[j] + N1 / ( N0 + N1 ) * s
+        
+            N0 += N1
+
+            # Square root.
+            self.std[0] = math.sqrt( self.std[0] )
+            self.std[1] = math.sqrt( self.std[1] )
+            self.std[2] = math.sqrt( self.std[2] )
+
+        print("Std values: {}.".format(self.std))
+
+        # Save the result to a json file
+        d = { "mean": self.mean, "std": self.std, "order": "bgr" }
+
+        fp = open( self.statFile, "w" )
+        json.dump(d, fp)
+        fp.close()
+        print( "Statistics saved to %s." % (self.statFile) )
 
     def __len__(self):
         return (int)( self.nImageFiles / 2 )
@@ -178,8 +323,12 @@ if __name__ == "__main__":
     tt = ToTensor()
     ttSample = tt(dsSample)
 
+    # Create a Normalize object.
+    nm = Normalize([80, 80, 80], [5, 5, 5])
+    nmSample = nm(ttSample)
+
     # Test transforms.
-    cm = transforms.Compose( [ds, tt] ) 
+    cm = transforms.Compose( [ds, tt, nm] ) 
     cmSample = cm( sample )
 
     # Create a data loader with transform.

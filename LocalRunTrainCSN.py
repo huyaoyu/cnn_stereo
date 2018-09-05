@@ -76,9 +76,13 @@ class MyWF(WorkFlow.WorkFlow):
         self.countTrain = 0
         self.countTest  = 0
 
+        # Cuda stuff.
+        self.cudaDev = torch.device("cuda:0")
+        torch.cuda.set_device( self.cudaDev.index )
+
         # ConvolutionalStereoNet.
         self.csn = ConvolutionalStereoNet()
-        self.csn.cuda()
+        self.csn.to( self.cudaDev )
 
     # Overload the function initialize().
     def initialize(self):
