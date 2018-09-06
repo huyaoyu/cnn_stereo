@@ -3,3 +3,5 @@
 *.png
 *.jpg
 *.code-workspace
+data/
+SampleTrain/
