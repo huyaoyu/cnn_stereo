@@ -52,18 +52,25 @@ class Downsample(object):
 
     def __call__(self, sample):
         # Retreive the images and the depths.
-        image0 = sample["image0"]
-        image1 = sample["image1"]
-        depth0 = sample["depth0"]
-        depth1 = sample["depth1"]
+        image0     = sample["image0"]
+        image1     = sample["image1"]
+        depth0     = sample["depth0"]
+        depth1     = sample["depth1"]
+        disparity0 = sample["disparity0"]
+        disparity1 = sample["disparity1"]
 
         # Downsample the iamges.
-        image0 = cv2.resize( image0, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
-        image1 = cv2.resize( image1, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
-        depth0 = cv2.resize( depth0, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
-        depth1 = cv2.resize( depth1, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        image0     = cv2.resize( image0,     (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        image1     = cv2.resize( image1,     (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        depth0     = cv2.resize( depth0,     (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        depth1     = cv2.resize( depth1,     (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        disparity0 = cv2.resize( disparity0, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
+        disparity1 = cv2.resize( disparity1, (0, 0), fx = self.ratio[0], fy = self.ratio[1], interpolation = cv2.INTER_NEAREST )
 
-        return { "image0": image0, "image1": image1, "depth0": depth0, "depth1": depth1 }
+        disparity0 = disparity0 * self.ratio[0]
+        disparity1 = disparity1 * self.ratio[0]
+
+        return { "image0": image0, "image1": image1, "depth0": depth0, "depth1": depth1, "disparity0": disparity0, "disparity1": disparity1 }
 
 class ToTensor(object):
     def __init__(self):
@@ -71,15 +78,20 @@ class ToTensor(object):
 
     def __call__(self, sample):
         # Retreive the images and the depths.
-        image0 = torch.from_numpy( sample["image0"].astype(np.float64).transpose((2, 0, 1)) )
-        image1 = torch.from_numpy( sample["image1"].astype(np.float64).transpose((2, 0, 1)) )
+        image0 = torch.from_numpy( sample["image0"].astype(np.float32).transpose((2, 0, 1)) )
+        image1 = torch.from_numpy( sample["image1"].astype(np.float32).transpose((2, 0, 1)) )
 
         depthShape = sample["depth0"].shape
 
-        depth0 = torch.from_numpy( sample["depth0"].reshape((1, depthShape[0], depthShape[1])) )
-        depth1 = torch.from_numpy( sample["depth1"].reshape((1, depthShape[0], depthShape[1])) )
+        depth0 = torch.from_numpy( sample["depth0"].astype(np.float32).reshape((1, depthShape[0], depthShape[1])) )
+        depth1 = torch.from_numpy( sample["depth1"].astype(np.float32).reshape((1, depthShape[0], depthShape[1])) )
 
-        return { "image0": image0, "image1": image1, "depth0": depth0, "depth1": depth1 }
+        disparityShape = sample["disparity0"].shape
+
+        disparity0 = torch.from_numpy( sample["disparity0"].astype(np.float32).reshape((1, disparityShape[0], disparityShape[1])) )
+        disparity1 = torch.from_numpy( sample["disparity1"].astype(np.float32).reshape((1, disparityShape[0], disparityShape[1])) )
+
+        return { "image0": image0, "image1": image1, "depth0": depth0, "depth1": depth1, "disparity0": disparity0, "disparity1": disparity1 }
 
 class Normalize(object):
     def __init__(self, mean, std):
@@ -124,6 +136,13 @@ class AirsimStereoDataset(Dataset):
         self.imageSuffix = imageSuffix
         self.depthSuffix = depthSuffix
         self.transform   = transform
+
+        # Read the meta data.
+        fp = open( self.rootDir + "/meta.json", "r" )
+        self.meta = json.load(fp)
+        fp.close()
+
+        self.FB = self.meta["focalLength"] * self.meta["baseline"]
 
         # Find all the file names.
         self.imageFiles = find_filenames( \
@@ -301,7 +320,18 @@ class AirsimStereoDataset(Dataset):
         dpt0 = np.load( self.depthFiles[idx0] )
         dpt1 = np.load( self.depthFiles[idx1] )
 
-        sample = { "image0": img0, "image1": img1, "depth0": dpt0, "depth1": dpt1 }
+        # Calculate the disparities.
+        dsp0 = self.FB / dpt0 * self.meta["disparityFactor"]
+        dsp1 = self.FB / dpt1 * self.meta["disparityFactor"]
+
+        # Check the validities of the disparities.
+        if ( np.sum( np.logical_not( np.isfinite(dsp0) ) ) > 0):
+            raise Exception("idx = %d, non-finite dsp0 found" % (idx))
+        
+        if ( np.sum( np.logical_not( np.isfinite(dsp1) ) ) > 0):
+            raise Exception("idx = %d, non-finite dsp1 found" % (idx))
+
+        sample = { "image0": img0, "image1": img1, "depth0": dpt0, "depth1": dpt1, "disparity0": dsp0, "disparity1": dsp1 }
 
         if ( self.transform is not None ):
             sample = self.transform( sample )
@@ -337,6 +367,16 @@ if __name__ == "__main__":
 
     # Test with data loader.
     dataLoader = DataLoader( asdTs, batch_size = 4, shuffle = False, num_workers = 4, drop_last = False )
+
+    # Test the iterator-like functionality of dataLoader.
+    dlIter = iter( dataLoader )
+    
+    while (True):
+        try:
+            bs = dlIter.next()
+        except StopIteration as exp:
+            print("Iteration stops.")
+            break
 
     for idxBatch, batchedSample in enumerate( dataLoader ):
         print( "idx = {}, size = {}.".format(idxBatch, batchedSample["image0"].size()) )

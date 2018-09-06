@@ -44,44 +44,13 @@ class MyWF(WorkFlow.WorkFlow):
         self.verbose = params["wfVerbose"]
 
         # === Create the AccumulatedObjects. ===
-        self.add_accumulated_value("loss2", 10)
-        self.add_accumulated_value("lossLeap")
-        self.add_accumulated_value("testAvg1", 10)
-        self.add_accumulated_value("testAvg2", 20)
-        self.add_accumulated_value("lossTest")
+        self.AV["loss"].avgWidth = 10
+        # self.add_accumulated_value("loss2", 10)
 
         # === Create a AccumulatedValuePlotter object for ploting. ===
-        avNameList    = ["loss", "loss2", "lossLeap"]
-        avAvgFlagList = [  True,   False,      True ]
         self.AVP.append(\
             WorkFlow.VisdomLinePlotter(\
-                "Combined", self.AV, avNameList, avAvgFlagList)\
-        )
-
-        self.AVP.append(\
-            WorkFlow.VisdomLinePlotter(\
-                "loss", self.AV, ["loss"])\
-        )
-
-        self.AVP.append(\
-            WorkFlow.VisdomLinePlotter(\
-                "losse", self.AV, ["loss2"], [True])\
-        )
-
-        self.AVP.append(\
-            WorkFlow.VisdomLinePlotter(\
-                "lossLeap", self.AV, ["lossLeap"], [True])\
-        )
-        self.AVP[-1].title = "Loss Leap"
-
-        self.AVP.append(\
-            WorkFlow.VisdomLinePlotter(\
-                "testAvg1", self.AV, ["testAvg1"], [True])\
-        )
-
-        self.AVP.append(\
-            WorkFlow.VisdomLinePlotter(\
-                "testAvg2", self.AV, ["testAvg2"], [True])\
+                "loss", self.AV, ["loss"], [True], semiLog = True)\
         )
 
         # === Custom member variables. ===
@@ -95,6 +64,7 @@ class MyWF(WorkFlow.WorkFlow):
         self.csn        = None
         self.dataset    = None
         self.dataLoader = None
+        self.dlIter     = None # The iterator stems from self.dataLoader.
 
         # Training variables.
         self.criterion = torch.nn.SmoothL1Loss()
@@ -122,7 +92,7 @@ class MyWF(WorkFlow.WorkFlow):
             Downsample((self.params["downSampleRatio"], self.params["downSampleRatio"])),\
             ToTensor(),\
             Normalize(self.dataset.mean, self.dataset.std)] )
-        self.dataset.transforms = cm
+        self.dataset.transform = cm
 
         # Dataloader.
         self.dataLoader = DataLoader( self.dataset,\
@@ -130,6 +100,8 @@ class MyWF(WorkFlow.WorkFlow):
             shuffle     = self.params["torchShuffle"],\
             num_workers = self.params["torchNumWorkers"],\
             drop_last   = self.params["torchDropLast"] )
+
+        self.dlIter = iter( self.dataLoader )
         
         # Optimizer.
         self.optimizer = torch.optim.Adam( \
@@ -137,36 +109,55 @@ class MyWF(WorkFlow.WorkFlow):
 
         self.logger.info("Initialized.")
 
+    def single_train(self, sample, md, cri, opt):
+        """
+        md:  The pytorch module.
+        cir: The criterion.
+        opt: The optimizer.
+        """
+        
+        # Get the images and the depth files.
+        image0     = sample["image0"]
+        image1     = sample["image1"]
+        disparity0 = sample["disparity0"]
+
+        # Transfer data to the GPU.
+        image0     = image0.to( self.cudaDev )
+        image1     = image1.to( self.cudaDev )
+        disparity0 = disparity0.to( self.cudaDev )
+
+        # Clear the gradients.
+        opt.zero_grad()
+        
+        # Forward.
+        output = md( image0, image1 )
+        loss   = cri( output, disparity0 )
+
+        # Handle the loss value.
+        self.AV["loss"].push_back( loss.item() )
+
+        # Backward.
+        loss.backward()
+        opt.step()
+
     # Overload the function train().
     def train(self):
         super(MyWF, self).train()
 
         # === Custom code. ===
         self.logger.info("Train loop #%d" % self.countTrain)
+        
+        # Get new sample to train.
+        try:
+            sample = self.dlIter.next()
+        except StopIteration as exp:
+            self.dlIter = iter( self.dataLoader )
+            sample = self.dlIter.next()
 
-        # Test the existance of an AccumulatedValue object.
-        if ( True == self.have_accumulated_value("loss") ):
-            self.AV["loss"].push_back(math.sin( self.countTrain*0.1 ), self.countTrain*0.1)
-        else:
-            self.logger.info("Could not find \"loss\"")
+        # Train for single round.
+        self.single_train( sample, self.csn, self.criterion, self.optimizer )
 
-        # Directly access "loss2" without existance test.
-        self.AV["loss2"].push_back(math.cos( self.countTrain*0.1 ), self.countTrain*0.1)
-
-        # lossLeap.
-        if ( self.countTrain % 10 == 0 ):
-            self.AV["lossLeap"].push_back(\
-                math.sin( self.countTrain*0.1 + 0.25*math.pi ),\
-                self.countTrain*0.1)
-
-        # testAvg.
-        self.AV["testAvg1"].push_back( 0.5, self.countTrain )
-
-        if ( self.countTrain < 50 ):
-            self.AV["testAvg2"].push_back( self.countTrain, self.countTrain )
-        else:
-            self.AV["testAvg2"].push_back( 50, self.countTrain )
-
+        # === Accumulated values. ===
         if ( self.countTrain % 10 == 0 ):
             self.write_accumulated_values()
 
@@ -175,9 +166,7 @@ class MyWF(WorkFlow.WorkFlow):
         # Plot accumulated values.
         self.plot_accumulated_values()
 
-        self.logger.info("Trained.")
-
-        time.sleep(0.05)
+        return True
 
     # Overload the function test().
     def test(self):
@@ -197,6 +186,11 @@ class MyWF(WorkFlow.WorkFlow):
         super(MyWF, self).finalize()
 
         # === Custom code. ===
+
+        # Save the CNN into file system.
+        fn = self.compose_file_name("csn", "pmd")
+        torch.save( self.csn.state_dict(), fn )
+
         self.logger.info("Finalized.")
 
 if __name__ == "__main__":
@@ -231,8 +225,9 @@ if __name__ == "__main__":
         # Training loop.
         print_delimeter(title = "Loop.")
 
-        for i in range(100):
-            wf.train()
+        for i in range(10000):
+            if ( False == wf.train() ):
+                break
 
         # Test and finalize.
         print_delimeter(title = "Test and finalize.")
@@ -249,6 +244,10 @@ if __name__ == "__main__":
 
         # print_delimeter()
         # wf.AV["lossTest"].show_raw_data()
+    except WorkFlow.SigIntException as e:
+        print( e.describe() )
+        print( "Interrupted by SIGINT. Entering finalize()." )
+        wf.finalize()
     except WorkFlow.WFException as e:
         print( e.describe() )
 

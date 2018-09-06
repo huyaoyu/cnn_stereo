@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 # The solution is found on https://github.com/pytorch/pytorch/issues/1901
 os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID" 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 CONV_NET_DICT = {
     "convNets_FX": [
@@ -49,13 +49,13 @@ CONV_NET_DICT = {
 }
 
 class ConvolutionalStereoNet(nn.Module):
-    def __init__(self, dev = None):
+    def __init__(self):
         super(ConvolutionalStereoNet, self).__init__()
 
         # Declare each layer.
         convNets_FX = CONV_NET_DICT["convNets_FX"]
-        self.fx     = []
-        self.fx_bn  = []
+        self.fx     = nn.ModuleList()
+        self.fx_bn  = nn.ModuleList()
 
         # Feature extraction layers.
         for fxd in convNets_FX:
@@ -69,7 +69,7 @@ class ConvolutionalStereoNet(nn.Module):
             self.fx_bn.append( nn.BatchNorm2d( fxd["outChannels"] ) )
 
         convNets_FX_Cat = CONV_NET_DICT["convNets_FX_Cat"]
-        self.fx_cat = []
+        self.fx_cat = nn.ModuleList()
 
         for fx_cat_d in convNets_FX_Cat:
             self.fx_cat.append( \
@@ -80,7 +80,7 @@ class ConvolutionalStereoNet(nn.Module):
                     fx_cat_d["padding"]) )
 
         convNets_ToExp = CONV_NET_DICT["convNets_ToExp"]
-        self.toExp     = []
+        self.toExp     = nn.ModuleList()
 
         for toExpd in convNets_ToExp:
             self.toExp.append( \
@@ -92,7 +92,7 @@ class ConvolutionalStereoNet(nn.Module):
 
         # Expansion layers.
         convNets_Exp = CONV_NET_DICT["convNets_Exp"]
-        self.exp     = []
+        self.exp     = nn.ModuleList()
 
         for expd in convNets_Exp:
             self.exp.append( \
@@ -104,7 +104,7 @@ class ConvolutionalStereoNet(nn.Module):
 
         # Contraction layers.
         convNets_Cnt = CONV_NET_DICT["convNets_Cnt"]
-        self.cnt     = []
+        self.cnt     = nn.ModuleList()
 
         for cntd in convNets_Cnt:
             self.cnt.append( \
@@ -116,7 +116,7 @@ class ConvolutionalStereoNet(nn.Module):
     
         # Depth reconstruction layers.
         convNets_DR = CONV_NET_DICT["convNets_DR"]
-        self.dr = []
+        self.dr = nn.ModuleList()
 
         for drd in convNets_DR:
             self.dr.append( \
@@ -126,18 +126,15 @@ class ConvolutionalStereoNet(nn.Module):
                     drd["stride"],\
                     drd["padding"] ) )
 
-        self._initialize_weights(dev)
+        self._initialize_weights()
 
-    def _initialize_weights(self, dev = None):
+    def _initialize_weights(self):
         for m in self.fx:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             nn.init.normal_(m.weight, 0, math.sqrt(2. / n))
 
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
         
         for m in self.fx_cat:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -145,9 +142,6 @@ class ConvolutionalStereoNet(nn.Module):
 
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
 
         for m in self.toExp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -155,9 +149,6 @@ class ConvolutionalStereoNet(nn.Module):
 
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
 
         for m in self.exp:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -165,9 +156,6 @@ class ConvolutionalStereoNet(nn.Module):
 
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
 
         for m in self.cnt:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -175,9 +163,6 @@ class ConvolutionalStereoNet(nn.Module):
             
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
 
         for m in self.dr:
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -185,16 +170,10 @@ class ConvolutionalStereoNet(nn.Module):
             
             if m.bias is not None:
                 m.bias.data.zero_()
-            
-            if ( dev is not None ):
-                m.to(dev)
         
         for m in self.fx_bn:
             m.weight.data.fill_(1)
             m.bias.data.zero_()
-
-            if ( dev is not None ):
-                m.to(dev)
 
     def feature_extract(self, x):
         # Manually run through each layer!!!
@@ -267,7 +246,7 @@ if __name__ == "__main__":
     dev = torch.device('cuda:0')
 
     # Create a ConvolutionalStereoNet object.
-    csn = ConvolutionalStereoNet(dev = dev)
+    csn = ConvolutionalStereoNet()
     print(csn)
     csn.to(dev)
 
@@ -292,4 +271,5 @@ if __name__ == "__main__":
     with torch.cuda.device(dev.index):
         for i in range(100):
             x = csn.forward(tL, tR)
+            print(x.size())
     

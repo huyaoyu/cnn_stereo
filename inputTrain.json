@@ -7,11 +7,11 @@
     "dataDir": "./data/airsim_oldtown_stereo_01",
     "imageDir": "image",
     "depthDir": "depth_plan",
-    "downSampleRatio": 4,
+    "downSampleRatio": 2,
     "torchCudaDevice": "cuda:0",
-    "torchBatchSize": 4,
-    "torchShuffle": false,
-    "torchNumWorkers": 4,
+    "torchBatchSize": 2,
+    "torchShuffle": true,
+    "torchNumWorkers": 2,
     "torchDropLast": false,
     "torchOptimLearningRate": 1e-4
 }
