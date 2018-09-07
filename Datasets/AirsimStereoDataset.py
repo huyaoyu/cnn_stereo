@@ -6,6 +6,7 @@ import cv2
 import json
 import glob
 import math
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 
@@ -29,6 +30,55 @@ def find_filenames(d, fnPattern):
     fnList.sort()
 
     return fnList
+
+def show_sample(sample):
+    # Create a matplotlib figure.
+    fig = plt.figure()
+
+    axImgL = plt.subplot(2, 2, 1)
+    plt.tight_layout()
+    axImgL.set_title("Left")
+    axImgL.axis("off")
+    plt.imshow( sample["image0"] )
+
+    axImgR = plt.subplot(2, 2, 2)
+    plt.tight_layout()
+    axImgR.set_title("Right")
+    axImgR.axis("off")
+    plt.imshow( sample["image1"] )
+
+    axDispL = plt.subplot(2, 2, 3)
+    plt.tight_layout()
+    axDispL.set_title("DispLeft")
+    axDispL.axis("off")
+    plt.imshow( sample["disparity0"] )
+
+    axDispR = plt.subplot(2, 2, 4)
+    plt.tight_layout()
+    axDispR.set_title("DispRight")
+    axDispR.axis("off")
+    plt.imshow( sample["disparity1"] )
+
+    plt.show()
+
+def show_sample_tensor(sample):
+    # Make a deep copy of the sample.
+    sc = copy.deepcopy(sample)
+
+    # Change the data type from PyTorch tensor to NumPy array.
+    sc["image0"] = sc["image0"].numpy().transpose((1, 2, 0)).astype(np.uint8)
+    sc["image1"] = sc["image1"].numpy().transpose((1, 2, 0)).astype(np.uint8)
+
+    sc["disparity0"] = sc["disparity0"].numpy()[0, :, :]
+    sc["disparity1"] = sc["disparity1"].numpy()[0, :, :]
+
+    sc["disparity0"] = sc["disparity0"] / sc["disparity0"].max()
+    sc["disparity1"] = sc["disparity1"] / sc["disparity1"].max()
+
+    print("disparity0 range = (%f, %f)." % ( sc["disparity0"].min(), sc["disparity0"].max() ))
+    print("disparity1 range = (%f, %f)." % ( sc["disparity1"].min(), sc["disparity1"].max() ))
+
+    show_sample(sc)
 
 class Downsample(object):
     def __init__(self, newSize):
@@ -103,7 +153,7 @@ class Normalize(object):
         self.mean = mean
         self.std  = std
 
-    def __call__(self, sample):
+    def __call__(self, sample, reverse = False):
         """
         NOTE: This function requires that the images in sample MUST be
         Tensor, and the dimensions are defined as (channel, height, width).
@@ -116,11 +166,18 @@ class Normalize(object):
 
         image0, image1 = sampleCopied["image0"], sampleCopied["image1"]
 
-        for t, m, s in zip(image0, self.mean, self.std):
-            t.sub_(m).div_(s)
+        if ( False == reverse ):
+            for t, m, s in zip(image0, self.mean, self.std):
+                t.sub_(m).div_(s)
 
-        for t, m, s in zip(image1, self.mean, self.std):
-            t.sub_(m).div_(s)
+            for t, m, s in zip(image1, self.mean, self.std):
+                t.sub_(m).div_(s)
+        else:
+            for t, m, s in zip(image0, self.mean, self.std):
+                t.mul_(s).add_(m)
+
+            for t, m, s in zip(image1, self.mean, self.std):
+                t.mul_(s).add_(m)
 
         return sampleCopied
 

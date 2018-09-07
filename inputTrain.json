@@ -9,9 +9,9 @@
     "depthDir": "depth_plan",
     "downSampleRatio": 2,
     "torchCudaDevice": "cuda:0",
-    "torchBatchSize": 2,
+    "torchBatchSize": 4,
     "torchShuffle": true,
-    "torchNumWorkers": 2,
+    "torchNumWorkers": 4,
     "torchDropLast": false,
     "torchOptimLearningRate": 1e-4
 }
