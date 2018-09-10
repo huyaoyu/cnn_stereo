@@ -4,6 +4,7 @@ from __future__ import print_function
 import argparse
 import json
 import math
+import matplotlib.pyplot as plt
 import os
 import sys
 import time
@@ -45,12 +46,14 @@ class MyWF(WorkFlow.WorkFlow):
 
         # === Create the AccumulatedObjects. ===
         self.AV["loss"].avgWidth = 10
-        # self.add_accumulated_value("loss2", 10)
+        self.add_accumulated_value("lossTest", 2)
 
         # === Create a AccumulatedValuePlotter object for ploting. ===
         self.AVP.append(\
             WorkFlow.VisdomLinePlotter(\
-                "loss", self.AV, ["loss"], [True], semiLog = True)\
+                "loss", self.AV, \
+                ["loss", "lossTest"], \
+                [True, False], semiLog = True)\
         )
 
         # === Custom member variables. ===
@@ -106,8 +109,20 @@ class MyWF(WorkFlow.WorkFlow):
         # Optimizer.
         self.optimizer = torch.optim.Adam( \
             self.csn.parameters(), lr = params["torchOptimLearningRate"] )
+        
+        # Load module from file.
+        if ( len( self.params["loadModule"] ) != 0 ):
+            self.load_modules( self.params["loadModule"] )
+            self.logger.info("Module loaded from %s." % (self.params["loadModule"]))
 
         self.logger.info("Initialized.")
+
+    def load_modules(self, fn):
+        if ( False == self.isInitialized ):
+            raise WorkFlow.WFException("Cannot load module before initialization.", "load_modules")
+
+        self.csn.load_state_dict( torch.load( fn ) )
+        
 
     def single_train(self, sample, md, cri, opt):
         """
@@ -168,16 +183,85 @@ class MyWF(WorkFlow.WorkFlow):
 
         return True
 
+    def single_test(self, identifier, sample, md, cri):
+        """
+        identifier: A string identifies this test.
+        md:  The pytorch module.
+        """
+        
+        # Get the images and the depth files.
+        image0     = sample["image0"]
+        image1     = sample["image1"]
+        disparity0 = sample["disparity0"]
+
+        # Transfer data to the GPU.
+        image0     = image0.to( self.cudaDev )
+        image1     = image1.to( self.cudaDev )
+        disparity0 = disparity0.to( self.cudaDev )
+        
+        # Forward.
+        output = md( image0, image1 )
+        loss   = cri( output, disparity0 )
+
+        # Handle the loss value.
+        plotX = self.countTrain - 1
+        if ( plotX < 0 ):
+            plotX = 0
+        self.AV["lossTest"].push_back( loss.item(), plotX )
+
+        # Save the test result.
+        batchSize = output.size()[0]
+        
+        for i in range(batchSize):
+            outDisp = output[i, 0, :, :].detach().cpu().numpy()
+            gdtDisp = disparity0[i, 0, :, :].detach().cpu().numpy()
+
+            outDisp = outDisp - outDisp.min()
+            gdtDisp = gdtDisp - outDisp.min()
+
+            outDisp = outDisp / outDisp.max()
+            gdtDisp = gdtDisp / gdtDisp.max()
+
+            # Create a matplotlib figure.
+            fig = plt.figure()
+
+            ax = plt.subplot(2, 1, 1)
+            plt.tight_layout()
+            ax.set_title("Ground truth")
+            ax.axis("off")
+            plt.imshow( gdtDisp )
+
+            ax = plt.subplot(2, 1, 2)
+            plt.tight_layout()
+            ax.set_title("Prediction")
+            ax.axis("off")
+            plt.imshow( outDisp )
+
+            figName = "%s_%02d" % (identifier, i)
+            figName = self.compose_file_name(figName, "png")
+            plt.savefig(figName)
+
+            plt.close(fig)
+
     # Overload the function test().
     def test(self):
         super(MyWF, self).test()
 
         # === Custom code. ===
-        # Test the existance of an AccumulatedValue object.
-        if ( True == self.have_accumulated_value("lossTest") ):
-            self.AV["lossTest"].push_back(0.01, self.countTest)
-        else:
-            self.logger.info("Could not find \"lossTest\"")
+
+        # Get new sample to test.
+        try:
+            sample = self.dlIter.next()
+        except StopIteration as exp:
+            self.dlIter = iter( self.dataLoader )
+            sample = self.dlIter.next()
+
+        # Single test.
+        identifier = "test_%d" % (self.countTrain - 1)
+        self.single_test(identifier, sample, self.csn, self.criterion)
+
+        # Plot accumulated values.
+        self.plot_accumulated_values()
 
         self.logger.info("Tested.")
 
@@ -225,7 +309,12 @@ if __name__ == "__main__":
         # Training loop.
         print_delimeter(title = "Loop.")
 
-        for i in range(10000):
+        testInterval = params["testInterval"]
+
+        for i in range( params["trainLoops"] ):
+            if ( i % testInterval == 0 ):
+                wf.test()
+            
             if ( False == wf.train() ):
                 break
 
@@ -235,15 +324,6 @@ if __name__ == "__main__":
         wf.test()
         wf.finalize()
 
-        # # Show the accululated values.
-        # print_delimeter(title = "Accumulated values.")
-        # wf.AV["loss"].show_raw_data()
-
-        # print_delimeter()
-        # wf.AV["lossLeap"].show_raw_data()
-
-        # print_delimeter()
-        # wf.AV["lossTest"].show_raw_data()
     except WorkFlow.SigIntException as e:
         print( e.describe() )
         print( "Interrupted by SIGINT. Entering finalize()." )
