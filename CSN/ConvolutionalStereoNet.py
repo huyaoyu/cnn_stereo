@@ -191,8 +191,10 @@ class ConvolutionalStereoNet(nn.Module):
 
         out  = self.fx[3](out)
         cat2 = self.fx_bn[3](out)
+        sizeCat2 = cat1.size()
         out  = F.max_pool2d( F.relu( cat2, inplace = False ), kernel_size = 2 )
-        cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        # cat2 = F.interpolate( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
+        cat2 = F.interpolate( cat2, size = (sizeCat2[2], sizeCat2[3]), mode = "bilinear", align_corners = True )
         # cat2 = F.upsample( cat2, scale_factor = 2, mode = "bilinear", align_corners = True )
         cat2 = self.fx_cat[0](cat2)
 
@@ -202,7 +204,9 @@ class ConvolutionalStereoNet(nn.Module):
 
         out  = self.fx[5](out)
         cat3 = self.fx_bn[5](out)
-        cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        sizeCat3 = cat1.size()
+        # cat3 = F.interpolate( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
+        cat3 = F.interpolate( cat3, size = ( sizeCat3[2], sizeCat3[3] ), mode = "bilinear", align_corners = True )
         # cat3 = F.upsample( cat3, scale_factor = 4, mode = "bilinear", align_corners = True )
         cat3 = self.fx_cat[1](cat3)
 

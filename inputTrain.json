@@ -16,5 +16,6 @@
     "torchShuffle": true,
     "torchNumWorkers": 4,
     "torchDropLast": false,
-    "torchOptimLearningRate": 1e-4
+    "torchOptimLearningRate": 1e-4,
+    "downSampleRatioTest": 4
 }

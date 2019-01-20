@@ -15,6 +15,7 @@ from torchvision import transforms
 
 from CSN.ConvolutionalStereoNet import ConvolutionalStereoNet
 from Datasets.AirsimStereoDataset import AirsimStereoDataset, Downsample, ToTensor, Normalize
+from Datasets import MiddleburyDataset
 
 for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
     sys.path.append( _p )
@@ -64,10 +65,13 @@ class MyWF(WorkFlow.WorkFlow):
         self.cudaDev = None
 
         # ConvolutionalStereoNet.
-        self.csn        = None
-        self.dataset    = None
-        self.dataLoader = None
-        self.dlIter     = None # The iterator stems from self.dataLoader.
+        self.csn            = None
+        self.dataset        = None
+        self.dataLoader     = None
+        self.dlIter         = None # The iterator stems from self.dataLoader.
+        self.datasetTest    = None
+        self.dataLoaderTest = None
+        self.dlIterTest     = None # The iterator stems from self.dataLoaderTest.
 
         # Training variables.
         self.criterion = torch.nn.SmoothL1Loss()
@@ -110,6 +114,27 @@ class MyWF(WorkFlow.WorkFlow):
         self.optimizer = torch.optim.Adam( \
             self.csn.parameters(), lr = params["torchOptimLearningRate"] )
         
+        # Test dataset.
+        self.datasetTest = MiddleburyDataset.MiddleburyDataset("/home/yyhu/expansion/OriginalData/MiddleburyDataSets/stereo/2003", "DSFiles.json")
+
+        # Test dataset transformer.
+        cmTest = transforms.Compose( [\
+            # MiddleburyDataset.Crop([ 14, 1472 ]),\
+            MiddleburyDataset.DownsampleCrop((320, 640)),\
+            MiddleburyDataset.Downsample((2, 2)),\
+            MiddleburyDataset.ToTensor(),\
+            MiddleburyDataset.Normalize( self.datasetTest.mean, self.datasetTest.std )] )
+        self.datasetTest.transform = cmTest
+
+        # Dataloader.
+        self.dataLoaderTest = DataLoader( self.datasetTest,\
+            batch_size  = 1,\
+            shuffle     = False,\
+            num_workers = 1,\
+            drop_last   = False )
+        
+        self.dlIterTest = iter( self.dataLoaderTest )
+
         # Load module from file.
         if ( len( self.params["loadModule"] ) != 0 ):
             self.load_modules( self.params["loadModule"] )
@@ -251,10 +276,10 @@ class MyWF(WorkFlow.WorkFlow):
 
         # Get new sample to test.
         try:
-            sample = self.dlIter.next()
+            sample = self.dlIterTest.next()
         except StopIteration as exp:
-            self.dlIter = iter( self.dataLoader )
-            sample = self.dlIter.next()
+            self.dlIterTest = iter( self.dataLoaderTest )
+            sample = self.dlIterTest.next()
 
         # Single test.
         identifier = "test_%d" % (self.countTrain - 1)
