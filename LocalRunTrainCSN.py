@@ -17,10 +17,14 @@ from CSN.ConvolutionalStereoNet import ConvolutionalStereoNet
 from Datasets.AirsimStereoDataset import AirsimStereoDataset, Downsample, ToTensor, Normalize
 from Datasets import MiddleburyDataset
 
-for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
-    sys.path.append( _p )
+#for _p in os.environ["CUSTOM_PYTHON_PATH"].split(":")[:-1]:
+#    sys.path.append( _p )
+
+sys.path.append( "/data/datasets/yaoyuh/Projects/WorkFlow" )
 
 from workflow import WorkFlow
+
+print("Import finished.")
 
 # ============== Constants. ======================
 
@@ -50,6 +54,8 @@ class MyWF(WorkFlow.WorkFlow):
         self.add_accumulated_value("lossTest", 2)
 
         # === Create a AccumulatedValuePlotter object for ploting. ===
+        WorkFlow.VisdomLinePlotter.host = self.params["visdomHost"]
+        WorkFlow.VisdomLinePlotter.port = self.params["visdomPort"]
         self.AVP.append(\
             WorkFlow.VisdomLinePlotter(\
                 "loss", self.AV, \
@@ -83,7 +89,12 @@ class MyWF(WorkFlow.WorkFlow):
 
         # === Custom code. ===
         # Cuda stuff.
-        self.cudaDev = torch.device(self.params["torchCudaDevice"])
+        if ( True == self.params["torchAutoCudaDevice"] ):
+            self.logger.info("Auto cuda device enabled.")
+            self.cudaDev = torch.cuda.current_device()
+        else:
+            self.cudaDev = torch.device(self.params["torchCudaDevice"])
+
         torch.cuda.set_device( self.cudaDev.index )
 
         # ConvolutionalStereoNet.
@@ -115,7 +126,8 @@ class MyWF(WorkFlow.WorkFlow):
             self.csn.parameters(), lr = params["torchOptimLearningRate"] )
         
         # Test dataset.
-        self.datasetTest = MiddleburyDataset.MiddleburyDataset("/home/yyhu/expansion/OriginalData/MiddleburyDataSets/stereo/2003", "DSFiles.json")
+        #self.datasetTest = MiddleburyDataset.MiddleburyDataset("/home/yyhu/expansion/OriginalData/MiddleburyDataSets/stereo/2003", "DSFiles.json")
+        self.datasetTest = MiddleburyDataset.MiddleburyDataset("/data/datasets/yaoyuh/StereoData/Middleburry_2003", "DSFiles.json")
 
         # Test dataset transformer.
         cmTest = transforms.Compose( [\
@@ -139,6 +151,8 @@ class MyWF(WorkFlow.WorkFlow):
         if ( len( self.params["loadModule"] ) != 0 ):
             self.load_modules( self.params["loadModule"] )
             self.logger.info("Module loaded from %s." % (self.params["loadModule"]))
+        else:
+            self.logger.info("No module to load.")
 
         self.logger.info("Initialized.")
 
@@ -303,6 +317,8 @@ class MyWF(WorkFlow.WorkFlow):
         self.logger.info("Finalized.")
 
 if __name__ == "__main__":
+    print("Hello CNN_Stereo!")
+
     # Arguments.
     parser = argparse.ArgumentParser(description="Train a CNN with workflow.")
 

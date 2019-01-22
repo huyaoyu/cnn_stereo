@@ -1,7 +1,10 @@
 
 from __future__ import print_function
 
+import fnmatch
 import glob
+import os
+import platform
 
 def find_filenames(d, fnPattern):
     """
@@ -33,10 +36,17 @@ def find_filenames_recursively(d, fnPattern):
     for Python version higher than 3.4.
     """
 
-    # Compose the search pattern.
-    s = d + "/**/" + fnPattern
+    # Test if the version of python is greater than 2
+    if ( 2 < int(platform.python_version()[0]) ):
+        # Compose the search pattern.
+        s = d + "/**/" + fnPattern
+    
+        fnList = glob.glob(s, recursive = True)
+    else:
+        fnList = [ os.path.join(dirpath, f)
+                    for dirpath, dirnames, files in os.walk(d)
+                    for f in fnmatch.filter(files, fnPattern) ]
 
-    fnList = glob.glob(s, recursive = True)
     fnList.sort()
 
     return fnList
